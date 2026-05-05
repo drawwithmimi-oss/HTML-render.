@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Render">
+<meta name="theme-color" content="#0e1014">
+<title>HTML Renderer</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%230e1014'/%3E%3Ctext x='50' y='62' font-family='ui-monospace,monospace' font-size='38' font-weight='600' text-anchor='middle' fill='%23d65442'%3E%26lt;%2F%26gt;%3C%2Ftext%3E%3C%2Fsvg%3E">
+<style>
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  background: #0e1014;
+  color: #e8e3d4;
+  overflow-x: hidden;
+}
+
+/* SHELL — visible only when no app is loaded */
+.shell {
+  min-height: 100%;
+  padding: max(20px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom));
+  max-width: 560px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 28px;
+  padding-top: 20px;
+}
+.brand-mark {
+  width: 40px; height: 40px;
+  background: #d65442;
+  display: grid; place-items: center;
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-weight: 600;
+  font-size: 18px;
+  color: #fff;
+  letter-spacing: -0.02em;
+}
+.brand-text h1 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+}
+.brand-text p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #877f70;
+  font-family: ui-monospace, "SF Mono", monospace;
+}
+
+.intro {
+  font-size: 15px;
+  line-height: 1.6;
+  color: #b9b1a0;
+  margin-bottom: 24px;
+  font-style: italic;
+}
+
+.card {
+  background: #1a1c22;
+  border: 1px solid #2a2c32;
+  padding: 18px;
+  margin-bottom: 14px;
+}
+.card.primary {
+  border-left: 3px solid #d65442;
+}
+.card-label {
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #877f70;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.card-desc {
+  font-size: 13.5px;
+  color: #b9b1a0;
+  line-height: 1.55;
+  margin-bottom: 14px;
+}
+.card-desc strong { color: #e8e3d4; }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: #d65442;
+  border: 0;
+  color: #fff;
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  text-decoration: none;
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  transition: opacity 0.15s ease;
+}
+.btn:active { opacity: 0.85; }
+.btn.btn-secondary {
+  background: transparent;
+  color: #e8e3d4;
+  border: 1px solid #2a2c32;
+}
+.btn.btn-danger {
+  background: transparent;
+  color: #d65442;
+  border: 1px solid #d65442;
+}
+
+.btn-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.btn-row .btn { flex: 1; min-width: 0; }
+
+input[type="file"] { display: none; }
+
+.cache-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #14161c;
+  border: 1px solid #2a2c32;
+  margin-bottom: 14px;
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+.cache-state .dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  flex-shrink: 0;
+}
+.cache-state.empty .dot { background: #4a4a52; }
+.cache-state.loaded .dot { background: #88a262; box-shadow: 0 0 8px #88a262; }
+.cache-state .meta { color: #877f70; }
+.cache-state .meta strong { color: #e8e3d4; font-weight: 500; }
+
+.steps {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 14px;
+  counter-reset: step;
+}
+.steps li {
+  position: relative;
+  padding: 8px 0 8px 32px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: #b9b1a0;
+  counter-increment: step;
+}
+.steps li::before {
+  content: counter(step, decimal-leading-zero);
+  position: absolute;
+  left: 0;
+  top: 9px;
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 10px;
+  font-weight: 600;
+  color: #d65442;
+  letter-spacing: 0.04em;
+}
+
+.toast {
+  position: fixed;
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: #e8e3d4;
+  color: #0e1014;
+  padding: 10px 18px;
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  z-index: 1000;
+  opacity: 0;
+  pointer-events: none;
+  transition: all 0.25s ease;
+  max-width: 80%;
+  text-align: center;
+}
+.toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+footer {
+  margin-top: auto;
+  padding-top: 30px;
+  font-size: 11px;
+  font-family: ui-monospace, "SF Mono", monospace;
+  letter-spacing: 0.06em;
+  color: #5e5a52;
+  text-align: center;
+  line-height: 1.7;
+}
+footer a {
+  color: #877f70;
+  text-decoration: none;
+  border-bottom: 1px dashed #444;
+}
+
+/* RENDERED APP — fills the whole viewport, hides shell */
+#app-frame {
+  display: none;
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #0e1014;
+  z-index: 1;
+}
+body.app-mode .shell { display: none; }
+body.app-mode #app-frame { display: block; }
+
+/* Floating exit button when in app mode */
+.exit-btn {
+  display: none;
+  position: fixed;
+  top: max(10px, env(safe-area-inset-top));
+  right: 10px;
+  z-index: 1000;
+  width: 36px; height: 36px;
+  background: rgba(14, 16, 20, 0.85);
+  border: 1px solid rgba(135, 127, 112, 0.4);
+  color: #e8e3d4;
+  font-family: ui-monospace, monospace;
+  font-size: 18px;
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  border-radius: 50%;
+  padding: 0;
+  line-height: 1;
+}
+body.app-mode .exit-btn { display: grid; place-items: center; }
+
+.help-toggle {
+  text-align: center;
+  margin: 10px 0;
+}
+.help-toggle button {
+  background: transparent;
+  border: 0;
+  color: #877f70;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  padding: 6px 12px;
+  border-bottom: 1px dashed #444;
+}
+.help {
+  display: none;
+  background: #14161c;
+  border: 1px solid #2a2c32;
+  padding: 16px;
+  margin-bottom: 14px;
+}
+.help.show { display: block; }
+.help h3 {
+  font-size: 13px;
+  font-weight: 500;
+  margin: 0 0 10px;
+  color: #e8e3d4;
+}
+.help p {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #b9b1a0;
+  margin: 0 0 10px;
+}
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+  <div class="brand-row">
+    <div class="brand-mark">&lt;/&gt;</div>
+    <div class="brand-text">
+      <h1>HTML Renderer</h1>
+      <p>Local · Offline · Yours</p>
+    </div>
+  </div>
+
+  <p class="intro">A generic tool to load any HTML file from your device, render it in this page, and remember it. Your file never leaves your phone.</p>
+
+  <div id="cache-state" class="cache-state empty">
+    <span class="dot"></span>
+    <span class="meta" id="cache-meta">No app loaded yet</span>
+  </div>
+
+  <!-- Primary action -->
+  <div class="card primary">
+    <div class="card-label">Load an app</div>
+    <div class="card-desc">Pick an HTML file from your device. It gets cached here in your browser. Next time you open this page, it loads automatically.</div>
+    <label for="file-input" class="btn">
+      <span>Choose HTML file</span>
+    </label>
+    <input type="file" id="file-input" accept=".html,.htm,text/html">
+  </div>
+
+  <!-- Cached app actions (shown when app is loaded) -->
+  <div class="card" id="cached-actions" style="display:none;">
+    <div class="card-label">Cached app</div>
+    <div class="card-desc" id="cached-name">Loading...</div>
+    <div class="btn-row" style="margin-bottom: 10px;">
+      <button class="btn" id="run-btn">Run app</button>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" id="replace-btn">Replace</button>
+      <button class="btn btn-danger" id="clear-btn">Clear cache</button>
+    </div>
+  </div>
+
+  <!-- Auto-run toggle -->
+  <div class="card" id="autorun-card" style="display:none;">
+    <div class="card-label">Auto-run on open</div>
+    <div class="card-desc" id="autorun-desc">When on, opening this page launches the cached app immediately. Tap the × button in the top right to come back here.</div>
+    <button class="btn btn-secondary" id="autorun-btn">Auto-run: off</button>
+  </div>
+
+  <div class="help-toggle">
+    <button id="help-toggle-btn">How to use this</button>
+  </div>
+
+  <div class="help" id="help">
+    <h3>Quick start</h3>
+    <ol class="steps">
+      <li>Tap <strong>Choose HTML file</strong>, pick your HTML from Files (works with files in iCloud Drive, Proton Drive, On My iPhone, etc.).</li>
+      <li>Once loaded, tap <strong>Run app</strong> to launch it.</li>
+      <li>Optional: turn on <strong>Auto-run</strong> so the app opens automatically next time.</li>
+      <li>Optional: in DuckDuckGo or Safari, use <strong>Add to Home Screen</strong> to make this page a one-tap shortcut.</li>
+    </ol>
+
+    <h3>What stays private</h3>
+    <p>The HTML file you load goes into your browser's local storage on this device. This page (the renderer) is the only thing on the internet. The app you load and any data it generates stay on your phone.</p>
+
+    <h3>If something breaks</h3>
+    <p>Tap <strong>Clear cache</strong> to wipe the loaded app and start fresh. This also clears any data the app stored under this page's domain.</p>
+  </div>
+
+  <footer>
+    Renderer is a static HTML viewer · No tracking · No server-side data<br>
+    Built for your device only
+  </footer>
+
+</div>
+
+<button class="exit-btn" id="exit-btn" aria-label="Exit app">×</button>
+
+<iframe id="app-frame" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads"></iframe>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function() {
+  const STORAGE_KEY = 'rendered-app-html';
+  const NAME_KEY = 'rendered-app-name';
+  const SIZE_KEY = 'rendered-app-size';
+  const TIME_KEY = 'rendered-app-time';
+  const AUTORUN_KEY = 'rendered-app-autorun';
+
+  // DOM refs
+  const fileInput = document.getElementById('file-input');
+  const cacheState = document.getElementById('cache-state');
+  const cacheMeta = document.getElementById('cache-meta');
+  const cachedActions = document.getElementById('cached-actions');
+  const cachedName = document.getElementById('cached-name');
+  const runBtn = document.getElementById('run-btn');
+  const replaceBtn = document.getElementById('replace-btn');
+  const clearBtn = document.getElementById('clear-btn');
+  const autorunCard = document.getElementById('autorun-card');
+  const autorunBtn = document.getElementById('autorun-btn');
+  const helpToggleBtn = document.getElementById('help-toggle-btn');
+  const help = document.getElementById('help');
+  const exitBtn = document.getElementById('exit-btn');
+  const appFrame = document.getElementById('app-frame');
+  const toast = document.getElementById('toast');
+
+  // --- Storage helpers (graceful degradation if localStorage blocked) ---
+  let storageAvailable = true;
+  try {
+    localStorage.setItem('__test__', '1');
+    localStorage.removeItem('__test__');
+  } catch (e) { storageAvailable = false; }
+
+  let memCache = {};
+  function lsGet(k) {
+    if (storageAvailable) {
+      try { return localStorage.getItem(k); } catch (e) {}
+    }
+    return memCache[k] || null;
+  }
+  function lsSet(k, v) {
+    if (storageAvailable) {
+      try { localStorage.setItem(k, v); return true; }
+      catch (e) {
+        storageAvailable = false;
+        memCache[k] = v;
+        return false;
+      }
+    }
+    memCache[k] = v;
+    return false;
+  }
+  function lsRemove(k) {
+    if (storageAvailable) {
+      try { localStorage.removeItem(k); } catch (e) {}
+    }
+    delete memCache[k];
+  }
+
+  // --- Toast feedback ---
+  let toastT;
+  function flash(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(toastT);
+    toastT = setTimeout(function() { toast.classList.remove('show'); }, 2000);
+  }
+
+  // --- Format helpers ---
+  function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1024 / 1024).toFixed(2) + ' MB';
+  }
+  function formatTime(ts) {
+    if (!ts) return '';
+    const d = new Date(parseInt(ts, 10));
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleString();
+  }
+
+  // --- UI state refresh ---
+  function refresh() {
+    const html = lsGet(STORAGE_KEY);
+    const name = lsGet(NAME_KEY);
+    const size = lsGet(SIZE_KEY);
+    const time = lsGet(TIME_KEY);
+    const autorun = lsGet(AUTORUN_KEY) === '1';
+
+    if (html) {
+      cacheState.classList.remove('empty');
+      cacheState.classList.add('loaded');
+      cacheMeta.innerHTML = '<strong>' + escapeHTML(name || 'Untitled') + '</strong>';
+      cachedActions.style.display = '';
+      autorunCard.style.display = '';
+      const sizeNum = parseInt(size, 10);
+      const detail = (size ? formatSize(isNaN(sizeNum) ? 0 : sizeNum) + ' · ' : '') + (time ? 'loaded ' + formatTime(time) : '');
+      cachedName.innerHTML = '<strong>' + escapeHTML(name || 'Untitled') + '</strong><br><span style="color:#5e5a52;font-size:12px;">' + detail + '</span>';
+      autorunBtn.textContent = autorun ? 'Auto-run: on' : 'Auto-run: off';
+      autorunBtn.style.borderColor = autorun ? '#88a262' : '#2a2c32';
+      autorunBtn.style.color = autorun ? '#88a262' : '#e8e3d4';
+    } else {
+      cacheState.classList.add('empty');
+      cacheState.classList.remove('loaded');
+      cacheMeta.textContent = 'No app loaded yet';
+      cachedActions.style.display = 'none';
+      autorunCard.style.display = 'none';
+    }
+
+    if (!storageAvailable) {
+      cacheMeta.textContent += ' (session only — storage blocked)';
+    }
+  }
+
+  function escapeHTML(s) {
+    const d = document.createElement('div');
+    d.textContent = s || '';
+    return d.innerHTML;
+  }
+
+  // --- File loading ---
+  fileInput.addEventListener('change', function(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(ev) {
+      const text = ev.target.result;
+      if (typeof text !== 'string' || text.length === 0) {
+        flash('File appears empty');
+        return;
+      }
+      const ok = lsSet(STORAGE_KEY, text);
+      lsSet(NAME_KEY, file.name);
+      lsSet(SIZE_KEY, String(file.size));
+      lsSet(TIME_KEY, String(Date.now()));
+      refresh();
+      if (ok) flash('Loaded ' + file.name);
+      else flash('Loaded (session only)');
+      // Reset the input so the same file can be picked again
+      fileInput.value = '';
+    };
+    reader.onerror = function() { flash('Failed to read file'); };
+    reader.readAsText(file);
+  });
+
+  // --- Run the cached app ---
+  function runApp() {
+    const html = lsGet(STORAGE_KEY);
+    if (!html) { flash('No app cached'); return; }
+    // Use a Blob URL so the iframe is a proper document with its own origin
+    // (relative to this page) and can use storage, fetch, etc.
+    try {
+      // Clean up any previous Blob URL
+      if (appFrame._currentUrl) {
+        try { URL.revokeObjectURL(appFrame._currentUrl); } catch (e) {}
+      }
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      appFrame._currentUrl = url;
+      appFrame.src = url;
+      document.body.classList.add('app-mode');
+    } catch (e) {
+      flash('Could not launch: ' + (e.message || 'unknown'));
+    }
+  }
+  function exitApp() {
+    document.body.classList.remove('app-mode');
+    // Don't revoke URL immediately — iframe might still be reading it
+    setTimeout(function() {
+      if (appFrame._currentUrl) {
+        try { URL.revokeObjectURL(appFrame._currentUrl); } catch (e) {}
+        appFrame._currentUrl = null;
+      }
+      appFrame.src = 'about:blank';
+    }, 100);
+  }
+  runBtn.addEventListener('click', runApp);
+  exitBtn.addEventListener('click', exitApp);
+
+  // --- Replace ---
+  replaceBtn.addEventListener('click', function() {
+    fileInput.click();
+  });
+
+  // --- Clear cache ---
+  clearBtn.addEventListener('click', function() {
+    let ok = false;
+    try { ok = confirm('Clear the cached app from this device? Any data it stored under this page (entries, settings, photos) will also be lost.'); }
+    catch (e) { ok = true; }
+    if (!ok) return;
+    lsRemove(STORAGE_KEY);
+    lsRemove(NAME_KEY);
+    lsRemove(SIZE_KEY);
+    lsRemove(TIME_KEY);
+    lsRemove(AUTORUN_KEY);
+    refresh();
+    flash('Cache cleared');
+  });
+
+  // --- Auto-run toggle ---
+  autorunBtn.addEventListener('click', function() {
+    const cur = lsGet(AUTORUN_KEY) === '1';
+    if (cur) {
+      lsSet(AUTORUN_KEY, '0');
+      flash('Auto-run off');
+    } else {
+      lsSet(AUTORUN_KEY, '1');
+      flash('Auto-run on');
+    }
+    refresh();
+  });
+
+  // --- Help toggle ---
+  helpToggleBtn.addEventListener('click', function() {
+    help.classList.toggle('show');
+    helpToggleBtn.textContent = help.classList.contains('show') ? 'Hide help' : 'How to use this';
+  });
+
+  // --- Boot ---
+  refresh();
+  // Auto-run if enabled and we have an app
+  if (lsGet(AUTORUN_KEY) === '1' && lsGet(STORAGE_KEY)) {
+    setTimeout(runApp, 100);
+  }
+})();
+</script>
+
+</body>
+</html>
