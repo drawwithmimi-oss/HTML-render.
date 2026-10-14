@@ -224,13 +224,16 @@ footer a {
   border-bottom: 1px dashed #444;
 }
 
-/* RENDERED APP — fills the whole viewport, hides shell */
+/* RENDERED APP — fills the viewport below the exit bar */
 #app-frame {
   display: none;
   position: fixed;
-  inset: 0;
+  left: 0;
+  right: 0;
+  top: calc(32px + env(safe-area-inset-top));
+  bottom: 0;
   width: 100%;
-  height: 100%;
+  height: calc(100% - 32px - env(safe-area-inset-top));
   border: 0;
   background: #0e1014;
   z-index: 1;
@@ -238,27 +241,46 @@ footer a {
 body.app-mode .shell { display: none; }
 body.app-mode #app-frame { display: block; }
 
-/* Floating exit button when in app mode */
-.exit-btn {
+/* Exit BAR at the very top when in app mode — thin, dedicated row, no overlap with the loaded app */
+.exit-bar {
   display: none;
   position: fixed;
-  top: max(10px, env(safe-area-inset-top));
-  right: 10px;
+  top: 0; left: 0; right: 0;
+  height: calc(32px + env(safe-area-inset-top));
+  padding-top: env(safe-area-inset-top);
+  background: #000;
+  border-bottom: 1px solid #2a2c32;
   z-index: 1000;
-  width: 36px; height: 36px;
-  background: rgba(14, 16, 20, 0.85);
-  border: 1px solid rgba(135, 127, 112, 0.4);
-  color: #e8e3d4;
-  font-family: ui-monospace, monospace;
-  font-size: 18px;
-  cursor: pointer;
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
-  border-radius: 50%;
-  padding: 0;
-  line-height: 1;
+  align-items: center;
+  justify-content: space-between;
+  padding-left: 12px;
+  padding-right: 12px;
 }
-body.app-mode .exit-btn { display: grid; place-items: center; }
+body.app-mode .exit-bar { display: flex; }
+.exit-btn {
+  background: transparent;
+  border: 0;
+  color: #d65442;
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  -webkit-tap-highlight-color: transparent;
+}
+.exit-btn:active { opacity: 0.7; }
+.exit-label {
+  color: #5e5a52;
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
 
 .help-toggle {
   text-align: center;
@@ -369,7 +391,8 @@ body.app-mode .exit-btn { display: grid; place-items: center; }
 
   <footer>
     Renderer is a static HTML viewer · No tracking · No server-side data<br>
-    Built for your device only
+    If the page crashes on load, add <strong style="color:#d65442;">?reset</strong> to the URL to wipe the cache.<br>
+    Or <strong style="color:#d65442;">?safe</strong> to open without auto-run.
   </footer>
 
 </div>
@@ -597,11 +620,75 @@ body.app-mode .exit-btn { display: grid; place-items: center; }
     helpToggleBtn.textContent = help.classList.contains('show') ? 'Hide help' : 'How to use this';
   });
 
-  // --- Boot ---
+  // ===========================================================
+  // CRASH RECOVERY
+  // Mobile Safari can crash on heavy pages. If it crashes with auto-run
+  // on, the user is stuck in a reload-crash loop. Three ways to recover:
+  //   1. URL contains ?reset  → wipe cache, show the shell
+  //   2. URL contains ?safe   → skip auto-run this session, show the shell
+  //   3. Crash counter >= 2   → auto-disable auto-run and show the shell
+  // The counter is bumped BEFORE auto-run launches and cleared AFTER a
+  // successful render of the launched iframe. Three crashes means
+  // the launch itself is unstable; stop auto-launching.
+  // ===========================================================
+  const CRASH_KEY = 'rendered-app-crash-count';
+  const url = new URL(window.location.href);
+  const params = url.searchParams;
+
+  if (params.has('reset')) {
+    lsRemove(STORAGE_KEY); lsRemove(NAME_KEY); lsRemove(SIZE_KEY);
+    lsRemove(TIME_KEY); lsRemove(AUTORUN_KEY); lsRemove(CRASH_KEY);
+    flash('Cache cleared');
+    // Clean the URL so a refresh doesn't re-clear
+    try { history.replaceState({}, '', url.pathname); } catch (e) {}
+  }
+
+  const safeMode = params.has('safe');
+  if (safeMode) {
+    try { history.replaceState({}, '', url.pathname); } catch (e) {}
+  }
+
+  const crashCount = parseInt(lsGet(CRASH_KEY) || '0', 10);
+  const crashLocked = crashCount >= 2;
+
+  // Always render the shell FIRST, so the user can tap buttons even
+  // if auto-run would crash. Delay auto-run until after paint.
   refresh();
-  // Auto-run if enabled and we have an app
-  if (lsGet(AUTORUN_KEY) === '1' && lsGet(STORAGE_KEY)) {
-    setTimeout(runApp, 100);
+
+  // If auto-run was wedged by crashes, surface it loudly in the UI
+  if (crashLocked) {
+    cacheMeta.textContent = 'Auto-run disabled: app crashed before loading. Tap Run app to try, or Clear cache to start over.';
+    cacheState.className = 'cache-state empty';
+    lsSet(AUTORUN_KEY, '0');
+    lsRemove(CRASH_KEY);
+    refresh();
+  }
+
+  function maybeAutoRun() {
+    if (safeMode) return;
+    if (crashLocked) return;
+    if (lsGet(AUTORUN_KEY) !== '1') return;
+    if (!lsGet(STORAGE_KEY)) return;
+    // Bump crash counter BEFORE launch
+    lsSet(CRASH_KEY, String(crashCount + 1));
+    try {
+      runApp();
+      // Clear counter once the iframe actually loads a document
+      appFrame.addEventListener('load', function clearOnce() {
+        appFrame.removeEventListener('load', clearOnce);
+        setTimeout(function() { lsRemove(CRASH_KEY); }, 1500);
+      }, { once: true });
+    } catch (e) {
+      flash('Launch error: ' + (e.message || 'unknown'));
+    }
+  }
+
+  // Give the shell a frame to paint, then try auto-run. Any crash now
+  // leaves the shell visible so the user can tap recovery buttons.
+  if (window.requestAnimationFrame) {
+    requestAnimationFrame(function() { setTimeout(maybeAutoRun, 400); });
+  } else {
+    setTimeout(maybeAutoRun, 400);
   }
 })();
 </script>
